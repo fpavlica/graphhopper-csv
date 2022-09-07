@@ -1,7 +1,7 @@
 graphhopper:
-  datareader.file: brandenburg-latest.osm.pbf
-  gtfs.file: gtfs-vbb.zip
-  graph.location: graphs/brandenburg-with-transit
+  datareader.file: scotland-latest.osm.pbf
+  gtfs.file: itm_scotland_gtfs.zip
+  graph.location: graphs/great-britain-with-transit
 
   profiles:
     - name: foot

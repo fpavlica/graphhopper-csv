@@ -1,0 +1,6 @@
+datareader.file: great-britain-latest.osm.pbf
+#gtfs.file: itm_scotland_gtfs.zip
+graph.location: graphs/great-britain-with-transit
+
+#profile: name=foot, vehicle=foot, weighting=fastest
+profile: name=car, vehicle=car, weighting=fastest
