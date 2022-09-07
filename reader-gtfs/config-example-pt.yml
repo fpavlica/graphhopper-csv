@@ -1,8 +1,12 @@
 graphhopper:
-  datareader.file: brandenburg-latest.osm.pbf
+  datareader.file: scotland-latest.osm.pbf
+  gtfs.file: itm_scotland_gtfs.zip
+  graph.location: graphs/great-britain-with-transit
+  
+  # datareader.file: brandenburg-latest.osm.pbf
   # for multiple files you can use: gtfs.file: file1.zip,file2.zip,file3.zip
-  gtfs.file: gtfs-vbb.zip
-  graph.location: graphs/brandenburg-with-transit
+  # gtfs.file: gtfs-vbb.zip
+  # graph.location: graphs/brandenburg-with-transit
 
   profiles:
     - name: foot
