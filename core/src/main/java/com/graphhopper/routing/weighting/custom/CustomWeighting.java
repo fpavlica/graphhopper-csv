@@ -77,7 +77,6 @@ public final class CustomWeighting extends AbstractWeighting {
      * costs or traffic light costs etc)
      */
     private final static double SPEED_CONV = 3.6;
-    private final BooleanEncodedValue baseVehicleAccessEnc;
     private final double maxSpeed;
     private final double maxPriority;
     private final double distanceInfluence;
@@ -89,7 +88,6 @@ public final class CustomWeighting extends AbstractWeighting {
         super(baseAccessEnc, baseSpeedEnc, turnCostProvider);
         this.edgeToSpeedMapping = parameters.getEdgeToSpeedMapping();
         this.edgeToPriorityMapping = parameters.getEdgeToPriorityMapping();
-        this.baseVehicleAccessEnc = baseAccessEnc;
         this.headingPenaltySeconds = parameters.getHeadingPenaltySeconds();
         this.maxSpeed = parameters.getMaxSpeed() / SPEED_CONV;
         this.maxPriority = parameters.getMaxPriority();
@@ -109,12 +107,12 @@ public final class CustomWeighting extends AbstractWeighting {
     public double calcEdgeWeight(EdgeIteratorState edgeState, boolean reverse) {
         final double distance = edgeState.getDistance();
         double seconds = calcSeconds(distance, edgeState, reverse);
-        if (Double.isInfinite(seconds))
-            return Double.POSITIVE_INFINITY;
+        if (Double.isInfinite(seconds)) return Double.POSITIVE_INFINITY;
         double distanceCosts = distance * distanceInfluence;
-        if (Double.isInfinite(distanceCosts))
-            return Double.POSITIVE_INFINITY;
+        if (Double.isInfinite(distanceCosts)) return Double.POSITIVE_INFINITY;
         double priority = edgeToPriorityMapping.get(edgeState, reverse);
+        // special case to avoid NaN for barrier edges (where time is often 0s)
+        if (priority == 0 && seconds == 0) return Double.POSITIVE_INFINITY;
         return seconds / priority + distanceCosts;
     }
 
@@ -124,7 +122,7 @@ public final class CustomWeighting extends AbstractWeighting {
             reverse = false;
 
         // TODO see #1835
-        if (reverse ? !edgeState.getReverse(baseVehicleAccessEnc) : !edgeState.get(baseVehicleAccessEnc))
+        if (reverse ? !edgeState.getReverse(accessEnc) : !edgeState.get(accessEnc))
             return Double.POSITIVE_INFINITY;
 
         double speed = edgeToSpeedMapping.get(edgeState, reverse);
@@ -142,6 +140,7 @@ public final class CustomWeighting extends AbstractWeighting {
 
     @Override
     public long calcEdgeMillis(EdgeIteratorState edgeState, boolean reverse) {
+        // we truncate to long here instead of rounding to make it consistent with FastestWeighting, maybe change to rounding later
         return Math.round(calcSeconds(edgeState.getDistance(), edgeState, reverse) * 1000);
     }
 

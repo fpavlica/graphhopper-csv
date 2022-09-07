@@ -17,18 +17,14 @@
  */
 package com.graphhopper.routing.util;
 
-import com.graphhopper.routing.ev.EncodedValue;
 import com.graphhopper.util.PMap;
-
-import java.util.function.Function;
 
 /**
  * @author Peter Karich
  */
-public interface FlagEncoderFactory {
+public interface VehicleEncodedValuesFactory {
     String ROADS = "roads";
     String CAR = "car";
-    String CAR4WD = "car4wd";
     String BIKE = "bike";
     String BIKE2 = "bike2";
     String RACINGBIKE = "racingbike";
@@ -38,7 +34,6 @@ public interface FlagEncoderFactory {
     String MOTORCYCLE = "motorcycle";
     String WHEELCHAIR = "wheelchair";
 
-    FlagEncoder createFlagEncoder(String name, PMap configuration);
+    VehicleEncodedValues createVehicleEncodedValues(String name, PMap configuration);
 
-    FlagEncoder deserializeFlagEncoder(String serializedFlagEncoder, Function<String, EncodedValue> evLookup);
 }

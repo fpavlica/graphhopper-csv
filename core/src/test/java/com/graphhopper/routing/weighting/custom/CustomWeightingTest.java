@@ -5,14 +5,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.graphhopper.json.Statement;
 import com.graphhopper.routing.ev.*;
 import com.graphhopper.routing.util.EncodingManager;
-import com.graphhopper.routing.util.FlagEncoder;
-import com.graphhopper.routing.util.FlagEncoders;
 import com.graphhopper.routing.weighting.FastestWeighting;
 import com.graphhopper.routing.weighting.Weighting;
 import com.graphhopper.storage.BaseGraph;
-import com.graphhopper.util.*;
+import com.graphhopper.util.CustomModel;
+import com.graphhopper.util.EdgeIteratorState;
+import com.graphhopper.util.GHUtility;
+import com.graphhopper.util.JsonFeature;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.Random;
 
 import static com.graphhopper.json.Statement.*;
 import static com.graphhopper.json.Statement.Op.LIMIT;
@@ -28,18 +31,16 @@ class CustomWeightingTest {
     DecimalEncodedValue maxSpeedEnc;
     EnumEncodedValue<RoadClass> roadClassEnc;
     EncodingManager encodingManager;
-    FlagEncoder carFE;
 
     @BeforeEach
     public void setup() {
-        carFE = FlagEncoders.createCar(new PMap().putObject("speed_two_directions", true));
-        encodingManager = new EncodingManager.Builder().add(carFE)
+        accessEnc = VehicleAccess.create("car");
+        avSpeedEnc = VehicleSpeed.create("car", 5, 5, true);
+        encodingManager = new EncodingManager.Builder().add(accessEnc).add(avSpeedEnc)
                 .add(new EnumEncodedValue<>(Toll.KEY, Toll.class))
                 .add(new EnumEncodedValue<>(Hazmat.KEY, Hazmat.class))
                 .add(new EnumEncodedValue<>(BikeNetwork.KEY, RouteNetwork.class))
                 .build();
-        avSpeedEnc = carFE.getAverageSpeedEnc();
-        accessEnc = carFE.getAccessEnc();
         maxSpeedEnc = encodingManager.getDecimalEncodedValue(MaxSpeed.KEY);
         roadClassEnc = encodingManager.getEnumEncodedValue(KEY, RoadClass.class);
         graph = new BaseGraph.Builder(encodingManager).create();
@@ -65,9 +66,9 @@ class CustomWeightingTest {
                 set(roadClassEnc, SECONDARY);
 
         // without priority costs fastest weighting is the same as custom weighting
-        assertEquals(144, new FastestWeighting(carFE, NO_TURN_COST_PROVIDER).calcEdgeWeight(slow, false), .1);
-        assertEquals(72, new FastestWeighting(carFE, NO_TURN_COST_PROVIDER).calcEdgeWeight(medium, false), .1);
-        assertEquals(36, new FastestWeighting(carFE, NO_TURN_COST_PROVIDER).calcEdgeWeight(fast, false), .1);
+        assertEquals(144, new FastestWeighting(accessEnc, avSpeedEnc, NO_TURN_COST_PROVIDER).calcEdgeWeight(slow, false), .1);
+        assertEquals(72, new FastestWeighting(accessEnc, avSpeedEnc, NO_TURN_COST_PROVIDER).calcEdgeWeight(medium, false), .1);
+        assertEquals(36, new FastestWeighting(accessEnc, avSpeedEnc, NO_TURN_COST_PROVIDER).calcEdgeWeight(fast, false), .1);
 
         CustomModel model = new CustomModel().setDistanceInfluence(0);
         assertEquals(144, createWeighting(model).calcEdgeWeight(slow, false), .1);
@@ -117,19 +118,21 @@ class CustomWeightingTest {
 
     @Test
     public void testBoolean() {
-        carFE = FlagEncoders.createCar();
+        BooleanEncodedValue accessEnc = VehicleAccess.create("car");
+        DecimalEncodedValue avSpeedEnc = VehicleSpeed.create("car", 5, 5, false);
         BooleanEncodedValue specialEnc = new SimpleBooleanEncodedValue("special", true);
-        encodingManager = new EncodingManager.Builder().add(carFE).add(specialEnc).build();
+        encodingManager = new EncodingManager.Builder().add(accessEnc).add(avSpeedEnc).add(specialEnc).build();
         graph = new BaseGraph.Builder(encodingManager).create();
 
         EdgeIteratorState edge = graph.edge(0, 1).set(accessEnc, true).setReverse(accessEnc, true).
                 set(avSpeedEnc, 15).set(specialEnc, false).setReverse(specialEnc, true).setDistance(10);
 
         CustomModel vehicleModel = new CustomModel();
-        assertEquals(3.1, createWeighting(vehicleModel).calcEdgeWeight(edge, false), 0.01);
+        Weighting weighting = CustomModelParser.createWeighting(accessEnc, avSpeedEnc, null, encodingManager, NO_TURN_COST_PROVIDER, vehicleModel);
+        assertEquals(3.1, weighting.calcEdgeWeight(edge, false), 0.01);
         vehicleModel.addToPriority(If("special == true", MULTIPLY, "0.8"));
         vehicleModel.addToPriority(If("special == false", MULTIPLY, "0.4"));
-        Weighting weighting = createWeighting(vehicleModel);
+        weighting = CustomModelParser.createWeighting(accessEnc, avSpeedEnc, null, encodingManager, NO_TURN_COST_PROVIDER, vehicleModel);
         assertEquals(6.7, weighting.calcEdgeWeight(edge, false), 0.01);
         assertEquals(3.7, weighting.calcEdgeWeight(edge, true), 0.01);
     }
@@ -259,6 +262,7 @@ class CustomWeightingTest {
 
     @Test
     public void testMaxPriority() {
+        assertEquals(155, avSpeedEnc.getMaxOrMaxStorableDecimal(), 0.1);
         double maxSpeed = 155;
         assertEquals(1000.0 / maxSpeed / 0.5 * 3.6, createWeighting(new CustomModel().
                 addToPriority(If("true", MULTIPLY, "0.5")).setDistanceInfluence(0)).getMinWeight(1000), 1.e-6);
@@ -305,7 +309,35 @@ class CustomWeightingTest {
         assertEquals(10 / (80 * 0.7 / 3.6) * 1000, weighting.calcEdgeMillis(motorway, false), 1);
     }
 
+    @Test
+    public void bugWithNaNForBarrierEdges() {
+        EdgeIteratorState motorway = graph.edge(0, 1).setDistance(0).
+                set(roadClassEnc, MOTORWAY).set(avSpeedEnc, 80).set(accessEnc, true, true);
+        CustomModel customModel = new CustomModel()
+                .addToPriority(Statement.If("road_class == MOTORWAY", Statement.Op.MULTIPLY, "0"));
+        Weighting weighting = createWeighting(customModel);
+        assertFalse(Double.isNaN(weighting.calcEdgeWeight(motorway, false)));
+        assertTrue(Double.isInfinite(weighting.calcEdgeWeight(motorway, false)));
+    }
+
+    @Test
+    void sameTimeAsFastestWeighting() {
+        // we make sure the returned times are the same, so we can check for regressions more easily when we migrate from fastest to custom
+        FastestWeighting fastestWeighting = new FastestWeighting(accessEnc, avSpeedEnc);
+        Weighting customWeighting = createWeighting(new CustomModel().setDistanceInfluence(0));
+        Random rnd = new Random();
+        for (int i = 0; i < 100; i++) {
+            double speed = 5 + rnd.nextDouble() * 100;
+            double distance = rnd.nextDouble() * 1000;
+            EdgeIteratorState edge = graph.edge(0, 1).setDistance(distance);
+            GHUtility.setSpeed(speed, speed, accessEnc, avSpeedEnc, edge);
+            long fastestMillis = fastestWeighting.calcEdgeMillis(edge, false);
+            long customMillis = customWeighting.calcEdgeMillis(edge, false);
+            assertEquals(fastestMillis, customMillis);
+        }
+    }
+
     private Weighting createWeighting(CustomModel vehicleModel) {
-        return CustomModelParser.createWeighting(carFE, encodingManager, NO_TURN_COST_PROVIDER, vehicleModel);
+        return CustomModelParser.createWeighting(accessEnc, avSpeedEnc, null, encodingManager, NO_TURN_COST_PROVIDER, vehicleModel);
     }
 }
